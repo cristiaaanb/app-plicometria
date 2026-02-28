@@ -1,46 +1,81 @@
 import streamlit as st
-import sqlite3
+import psycopg2
 import pandas as pd
 from fpdf import FPDF
 from datetime import datetime
+import warnings
+
+# Ignora avvisi fastidiosi dietro le quinte
+warnings.filterwarnings('ignore')
 
 # Deve essere sempre il primo comando Streamlit
 st.set_page_config(page_title="App Plicometria", layout="wide")
+
+# ==========================================
+# 1. IMPOSTAZIONI DI SICUREZZA E CONNESSIONE
+# ==========================================
+# Se non c'è la password, ferma tutto
+if 'autenticato' not in st.session_state:
+    st.session_state.autenticato = False
+
+if not st.session_state.autenticato:
+    st.title("🔒 Accesso Riservato")
+    st.write("Inserisci la password per sbloccare l'applicazione.")
+    
+    pwd_inserita = st.text_input("Password:", type="password")
+    
+    if st.button("Entra"):
+        if pwd_inserita == st.secrets["APP_PASS"]:
+            st.session_state.autenticato = True
+            st.rerun()
+        else:
+            st.error("❌ Password errata! Riprova.")
+    
+    st.stop() # Blocca il caricamento del resto se non autenticato
 
 # --- INIZIALIZZAZIONE MESSAGGI DI SUCCESSO ---
 if 'success_msg' not in st.session_state:
     st.session_state.success_msg = ""
 
-# --- 1. CONFIGURAZIONE DATABASE LOCALE ---
-# Usiamo v4 per includere la nuova colonna bf_media senza far crashare i vecchi db
-conn = sqlite3.connect('db_plicometria_v4.db', check_same_thread=False)
-c = conn.cursor()
+# Link del database Supabase nascosto nei Secrets
+DB_URL = st.secrets["SUPABASE_URL"]
 
-c.execute('''CREATE TABLE IF NOT EXISTS clienti (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nome TEXT UNIQUE,
-    eta INTEGER,
-    sesso TEXT,
-    altezza REAL
-)''')
+@st.cache_resource
+def setup_db():
+    conn = psycopg2.connect(DB_URL)
+    conn.autocommit = True
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS clienti (
+        id SERIAL PRIMARY KEY,
+        nome TEXT UNIQUE,
+        eta INTEGER,
+        sesso TEXT,
+        altezza REAL
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS misurazioni (
+        id SERIAL PRIMARY KEY,
+        cliente_id INTEGER REFERENCES clienti(id),
+        data TEXT,
+        peso REAL,
+        polpaccio_circ REAL, polpaccio_plico REAL,
+        coscia_circ REAL, coscia_plico REAL,
+        vita_circ REAL, vita_plico REAL,
+        spalle_circ REAL, spalle_plico REAL,
+        schiena_circ REAL, schiena_plico REAL,
+        braccio_circ REAL, braccio_plico REAL,
+        bf_media REAL
+    )''')
+    conn.close()
 
-c.execute('''CREATE TABLE IF NOT EXISTS misurazioni (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    cliente_id INTEGER,
-    data TEXT,
-    peso REAL,
-    polpaccio_circ REAL, polpaccio_plico REAL,
-    coscia_circ REAL, coscia_plico REAL,
-    vita_circ REAL, vita_plico REAL,
-    spalle_circ REAL, spalle_plico REAL,
-    schiena_circ REAL, schiena_plico REAL,
-    braccio_circ REAL, braccio_plico REAL,
-    bf_media REAL,
-    FOREIGN KEY(cliente_id) REFERENCES clienti(id)
-)''')
-conn.commit()
+setup_db()
 
-# --- 2. FUNZIONE PER GENERARE IL PDF ---
+def get_db_connection():
+    return psycopg2.connect(DB_URL)
+
+
+# ==========================================
+# 2. FUNZIONE PER GENERARE IL PDF (ESTETICA ORIGINALE)
+# ==========================================
 def genera_pdf(dati_cliente, df_storico):
     pdf = FPDF()
     pdf.add_page()
@@ -60,7 +95,7 @@ def genera_pdf(dati_cliente, df_storico):
         pdf.set_font("Arial", size=12)
         pdf.cell(200, 8, txt=f"Peso: {ultimi_dati['peso']} kg", ln=True)
         
-        # Aggiungiamo il dato saliente in evidenza!
+        # Dato saliente in evidenza!
         pdf.set_font("Arial", style="B", size=12)
         pdf.set_text_color(0, 100, 0) # Verde scuro
         pdf.cell(200, 8, txt=f"BF Totale Media: {ultimi_dati['bf_media']:.1f} %", ln=True)
@@ -93,16 +128,23 @@ def genera_pdf(dati_cliente, df_storico):
         
     return bytes(pdf.output())
 
-# --- 3. INTERFACCIA WEB (STREAMLIT) ---
+
+# ==========================================
+# 3. INTERFACCIA WEB (STREAMLIT)
+# ==========================================
 st.title("Plicometria 📊")
 
 if st.session_state.success_msg != "":
     st.success(st.session_state.success_msg)
     st.session_state.success_msg = ""
 
-df_clienti = pd.read_sql_query("SELECT * FROM clienti", conn)
+# Carichiamo i clienti dal DB Supabase
+conn_read = get_db_connection()
+df_clienti = pd.read_sql_query("SELECT * FROM clienti ORDER BY nome ASC", conn_read)
+conn_read.close()
 
-tab1, tab2, tab3 = st.tabs(["➕ Nuovo Cliente", "📝 Aggiungi Misurazione", "📈 Storico e Stampa"])
+# Ho aggiunto la 4° scheda per gestire i clienti!
+tab1, tab2, tab3, tab4 = st.tabs(["➕ Nuovo Cliente", "📝 Aggiungi Misurazione", "📈 Storico e Stampa", "👥 Gestione Clienti"])
 
 # --- SCHEDA 1: NUOVO CLIENTE ---
 with tab1:
@@ -119,12 +161,15 @@ with tab1:
             st.warning("Devi inserire un nome!")
         else:
             try:
-                c.execute("INSERT INTO clienti (nome, eta, sesso, altezza) VALUES (?, ?, ?, ?)", 
+                conn_write = get_db_connection()
+                c = conn_write.cursor()
+                c.execute("INSERT INTO clienti (nome, eta, sesso, altezza) VALUES (%s, %s, %s, %s)", 
                           (nuovo_nome.strip(), int(eta), sesso, float(altezza)))
-                conn.commit()
+                conn_write.commit()
+                conn_write.close()
                 st.session_state.success_msg = f"✅ Cliente '{nuovo_nome}' registrato con successo!"
                 st.rerun()
-            except sqlite3.IntegrityError:
+            except psycopg2.IntegrityError:
                 st.error("⚠️ ERRORE: Questa persona è già presente nel database! Vai nelle altre schede per aggiungere misurazioni.")
 
 # --- SCHEDA 2: MISURAZIONI ---
@@ -156,12 +201,14 @@ with tab2:
             somma_bf = sum([misure_input[p][1] for p in parti_del_corpo])
             bf_media = somma_bf / 6.0
             
+            conn_write = get_db_connection()
+            c = conn_write.cursor()
             c.execute('''INSERT INTO misurazioni (
                 cliente_id, data, peso, 
                 polpaccio_circ, polpaccio_plico, coscia_circ, coscia_plico, 
                 vita_circ, vita_plico, spalle_circ, spalle_plico, 
                 schiena_circ, schiena_plico, braccio_circ, braccio_plico, bf_media
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''', (
                 cliente_id, data_oggi, float(peso),
                 float(misure_input['polpaccio'][0]), float(misure_input['polpaccio'][1]),
                 float(misure_input['coscia'][0]), float(misure_input['coscia'][1]),
@@ -171,7 +218,8 @@ with tab2:
                 float(misure_input['braccio'][0]), float(misure_input['braccio'][1]),
                 float(bf_media) # Salviamo la media!
             ))
-            conn.commit()
+            conn_write.commit()
+            conn_write.close()
             
             st.session_state.success_msg = f"✅ Misure salvate! BF Media calcolata: {bf_media:.1f}%"
             st.rerun()
@@ -186,14 +234,13 @@ with tab3:
         dati_cliente = df_clienti[df_clienti['nome'] == cliente_stampa].iloc[0]
         cliente_id_stampa = int(dati_cliente['id'])
         
-        df_storico = pd.read_sql_query(f"SELECT * FROM misurazioni WHERE cliente_id = {cliente_id_stampa} ORDER BY data ASC", conn)
+        conn_read = get_db_connection()
+        df_storico = pd.read_sql_query(f"SELECT * FROM misurazioni WHERE cliente_id = {cliente_id_stampa} ORDER BY data ASC", conn_read)
+        conn_read.close()
         
         if not df_storico.empty:
             # --- CALCOLI AVANZATI PER IL GRAFICO ---
-            # Calcoliamo la massa muscolare (Massa Magra) sottraendo la % di BF media dal peso
             df_storico['massa_magra_kg'] = df_storico['peso'] * (1 - (df_storico['bf_media'] / 100))
-            
-            # Calcoliamo il rapporto richiesto (Massa Muscolare / BF). Evitiamo divisioni per zero.
             df_storico['rapporto_muscolo_bf'] = df_storico.apply(
                 lambda row: row['massa_magra_kg'] / row['bf_media'] if row['bf_media'] > 0 else 0, axis=1
             )
@@ -211,7 +258,6 @@ with tab3:
                 st.line_chart(df_grafico_rapporto[['rapporto_muscolo_bf']])
             
             st.write("### Tabella Completa Dati")
-            # Mostriamo solo le colonne più utili per non intasare la vista
             colonne_da_mostrare = ['data', 'peso', 'bf_media', 'massa_magra_kg', 'rapporto_muscolo_bf']
             st.dataframe(df_storico[colonne_da_mostrare], use_container_width=True)
             
@@ -224,3 +270,55 @@ with tab3:
             )
         else:
             st.info("⚠️ Nessuna misurazione presente per questo cliente.")
+
+# --- SCHEDA 4: GESTIONE CLIENTI (NUOVA FUNZIONE) ---
+with tab4:
+    st.subheader("Visualizza e Modifica Dati Clienti")
+    
+    if not df_clienti.empty:
+        # Mostra la tabella completa
+        st.write("**Elenco Attuale:**")
+        st.dataframe(df_clienti[['id', 'nome', 'eta', 'sesso', 'altezza']].set_index('id'), use_container_width=True)
+        
+        st.write("---")
+        st.write("### Modifica Dati Anagrafici")
+        
+        # Seleziona il cliente da modificare
+        cliente_da_modificare = st.selectbox("Seleziona chi vuoi modificare:", df_clienti['nome'].tolist(), key="sel_modifica")
+        dati_attuali = df_clienti[df_clienti['nome'] == cliente_da_modificare].iloc[0]
+        
+        # Crea un form per modificare i dati senza salvarli per sbaglio
+        with st.form("form_modifica"):
+            mod_nome = st.text_input("Nome", value=dati_attuali['nome'])
+            
+            c1, c2, c3 = st.columns(3)
+            mod_eta = c1.number_input("Età", min_value=1, max_value=120, step=1, value=int(dati_attuali['eta']))
+            
+            indice_sesso = 0 if dati_attuali['sesso'] == "M" else 1
+            mod_sesso = c2.selectbox("Sesso", ["M", "F"], index=indice_sesso)
+            
+            mod_altezza = c3.number_input("Altezza (cm)", min_value=50.0, max_value=250.0, format="%.1f", value=float(dati_attuali['altezza']))
+            
+            submit_modifica = st.form_submit_button("💾 Salva Modifiche")
+            
+            if submit_modifica:
+                if mod_nome.strip() == "":
+                    st.warning("Il nome non può essere vuoto!")
+                else:
+                    try:
+                        conn_update = get_db_connection()
+                        cur = conn_update.cursor()
+                        cur.execute('''
+                            UPDATE clienti 
+                            SET nome = %s, eta = %s, sesso = %s, altezza = %s 
+                            WHERE id = %s
+                        ''', (mod_nome.strip(), int(mod_eta), mod_sesso, float(mod_altezza), int(dati_attuali['id'])))
+                        conn_update.commit()
+                        conn_update.close()
+                        
+                        st.session_state.success_msg = f"✅ Dati di '{mod_nome}' aggiornati con successo!"
+                        st.rerun()
+                    except psycopg2.IntegrityError:
+                        st.error("⚠️ ERRORE: Esiste già un altro cliente con questo nome!")
+    else:
+        st.info("Nessun cliente registrato nel database.")
