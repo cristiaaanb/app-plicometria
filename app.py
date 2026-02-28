@@ -25,7 +25,7 @@ if not st.session_state.autenticato:
     pwd_inserita = st.text_input("Password:", type="password")
     
     if st.button("Entra"):
-        if pwd_inserita == st.secrets["APP_PASS"]:
+        if pwd_inserita == st.secrets["MammoliLaid26?"]:
             st.session_state.autenticato = True
             st.rerun()
         else:
@@ -38,7 +38,7 @@ if 'success_msg' not in st.session_state:
     st.session_state.success_msg = ""
 
 # Link del database Supabase nascosto nei Secrets
-DB_URL = st.secrets["SUPABASE_URL"]
+DB_URL = st.secrets["postgres://postgres.apbkobhfnmcqqzqeeqss:[MammoliLaid26?]@aws-0-[eu-central-1].pooler.supabase.com:5432/postgres"]
 
 @st.cache_resource
 def setup_db():
@@ -322,3 +322,4 @@ with tab4:
                         st.error("⚠️ ERRORE: Esiste già un altro cliente con questo nome!")
     else:
         st.info("Nessun cliente registrato nel database.")
+
