@@ -29,7 +29,7 @@ if not st.session_state.autenticato:
             st.session_state.autenticato = True
             st.rerun()
         else:
-            st.error("❌ Password errata! Riprova.")
+            st.error("❌ Password errata! ( svegliati ).")
     
     st.stop() # Blocca il caricamento del resto se non autenticato
 
@@ -170,7 +170,7 @@ with tab1:
                 st.session_state.success_msg = f"✅ Cliente '{nuovo_nome}' registrato con successo!"
                 st.rerun()
             except psycopg2.IntegrityError:
-                st.error("⚠️ ERRORE: Questa persona è già presente nel database! Vai nelle altre schede per aggiungere misurazioni.")
+                st.error("⚠️ ERRORE: Questa persona è già presente! Vai nelle altre schede per aggiungere misurazioni. ( fra ma sei giusto? )")
 
 # --- SCHEDA 2: MISURAZIONI ---
 with tab2:
@@ -269,7 +269,7 @@ with tab3:
                 mime="application/pdf"
             )
         else:
-            st.info("⚠️ Nessuna misurazione presente per questo cliente.")
+            st.info("⚠️ Nessuna misurazione presente per questo secco.")
 
 # --- SCHEDA 4: GESTIONE CLIENTI (NUOVA FUNZIONE) ---
 with tab4:
@@ -303,7 +303,7 @@ with tab4:
             
             if submit_modifica:
                 if mod_nome.strip() == "":
-                    st.warning("Il nome non può essere vuoto!")
+                    st.warning("Il nome non può essere vuoto, ghea feto?")
                 else:
                     try:
                         conn_update = get_db_connection()
@@ -319,8 +319,9 @@ with tab4:
                         st.session_state.success_msg = f"✅ Dati di '{mod_nome}' aggiornati con successo!"
                         st.rerun()
                     except psycopg2.IntegrityError:
-                        st.error("⚠️ ERRORE: Esiste già un altro cliente con questo nome!")
+                        st.error("⚠️ PROBLEMI: Esiste già un altro cliente con questo nome! ripeto PROBLEMI")
     else:
         st.info("Nessun cliente registrato nel database.")
+
 
 
