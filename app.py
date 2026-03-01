@@ -154,11 +154,11 @@ with tab1:
     col1, col2, col3 = st.columns(3)
     eta = col1.number_input("Età", min_value=1, max_value=120, step=1)
     sesso = col2.selectbox("Sesso", ["M", "F"])
-    altezza = col3.number_input("Altezza (cm)", min_value=50.0, max_value=250.0, format="%.1f")
+    altezza = col3.number_input("Altezza (cm)", min_value=150.0, max_value=250.0, format="%.1f")
     
     if st.button("Salva Cliente"):
         if nuovo_nome.strip() == "":
-            st.warning("Devi inserire un nome!")
+            st.warning("Devi inserire un nome furbo :)")
         else:
             try:
                 conn_write = get_db_connection()
@@ -322,6 +322,7 @@ with tab4:
                         st.error("⚠️ PROBLEMI: Esiste già un altro cliente con questo nome! ripeto PROBLEMI")
     else:
         st.info("Nessun cliente registrato nel database.")
+
 
 
 
